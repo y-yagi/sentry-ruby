@@ -12,8 +12,6 @@ module Sentry
     initializer "sentry.use_rack_middleware" do |app|
       # need to be placed at first to capture as many errors as possible
       app.config.middleware.insert 0, Sentry::Rails::CaptureExceptions
-      # need to be placed at last to smuggle app exceptions via env
-      app.config.middleware.use(Sentry::Rails::RescuedExceptionInterceptor)
     end
 
     config.after_initialize do
@@ -26,6 +24,7 @@ module Sentry
       override_streaming_reporter
       setup_backtrace_cleanup_callback
       inject_breadcrumbs_logger
+      register_interceptor if Sentry.configuration.rails.report_rescued_exceptions
       activate_tracing
     end
 
@@ -68,6 +67,12 @@ module Sentry
     def override_streaming_reporter
       ActiveSupport.on_load :action_view do
         ActionView::StreamingTemplateRenderer::Body.send(:prepend, Sentry::Rails::Overrides::StreamingReporter)
+      end
+    end
+
+    def register_interceptor
+      ActionDispatch::DebugExceptions.register_interceptor do |request, exception|
+        Sentry::Rails.capture_exception(exception)
       end
     end
 

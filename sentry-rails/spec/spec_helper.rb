@@ -52,6 +52,10 @@ RSpec.configure do |config|
     ENV.delete('RAILS_ENV')
     ENV.delete('RACK_ENV')
   end
+
+  config.after :each do
+    ActionDispatch::DebugExceptions.class_variable_set(:@@interceptors, [])
+  end
 end
 
 def build_exception_with_cause(cause = "exception a")

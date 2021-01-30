@@ -3,10 +3,6 @@ module Sentry
     class CaptureExceptions < Sentry::Rack::CaptureExceptions
       private
 
-      def collect_exception(env)
-        super || env["action_dispatch.exception"] || env["sentry.rescued_exception"]
-      end
-
       def transaction_op
         "rails.request".freeze
       end

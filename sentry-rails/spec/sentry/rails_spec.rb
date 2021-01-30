@@ -25,7 +25,6 @@ RSpec.describe Sentry::Rails, type: :request do
     it "inserts middleware to a correct position" do
       app = Rails.application
       expect(app.middleware.find_index(Sentry::Rails::CaptureExceptions)).to eq(0)
-      expect(app.middleware.find_index(Sentry::Rails::RescuedExceptionInterceptor)).to eq(app.middleware.count - 1)
     end
 
     it "sets Sentry.configuration.logger correctly" do
@@ -43,7 +42,11 @@ RSpec.describe Sentry::Rails, type: :request do
     it "sets transaction to ControllerName#method" do
       get "/exception"
 
-      expect(event['transaction']).to eq("HelloController#exception")
+      expect(transport.events.last.transaction).to eq("HelloController#exception")
+
+      get "/posts"
+
+      expect(transport.events.last.transaction).to eq("PostsController#index")
     end
 
     it "sets correct request url" do
