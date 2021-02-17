@@ -214,4 +214,105 @@ RSpec.describe Sentry::Client do
       let(:event) { transaction_event_object.to_json_compatible }
     end
   end
+
+  describe "integrated error handling testing with HTTPTransport" do
+    let(:string_io) { StringIO.new }
+    let(:logger) do
+      ::Logger.new(string_io)
+    end
+    let(:configuration) do
+      Sentry::Configuration.new.tap do |config|
+        config.dsn = DUMMY_DSN
+        config.logger = logger
+      end
+    end
+
+    let(:message) { "Test message" }
+    let(:scope) { Sentry::Scope.new }
+    let(:event) { subject.event_from_message(message) }
+
+    describe "#capture_event" do
+      context 'with config.async set' do
+        let(:async_block) do
+          lambda do |event|
+            subject.send_event(event)
+          end
+        end
+
+        around do |example|
+          prior_async = configuration.async
+          configuration.async = async_block
+          example.run
+          configuration.async = prior_async
+        end
+
+        before do
+          expect(configuration.async).to receive(:call).and_call_original
+        end
+
+        it "logs the error and returns nil" do
+          returned = subject.capture_event(event, scope)
+
+          expect(returned).to be_nil
+          expect(string_io.string).to match(/event sending failed:/)
+        end
+
+        context "when async raises an exception" do
+          around do |example|
+            prior_async = configuration.async
+            configuration.async = proc { raise TypeError }
+            example.run
+            configuration.async = prior_async
+          end
+
+          it 'sends the result of Event.capture_exception via fallback' do
+            expect(subject).to receive(:send_event)
+
+            subject.capture_event(event, scope)
+            expect(string_io.string).to match(/async event sending failed: TypeError/)
+          end
+        end
+      end
+
+      context "with background_worker enabled (default)" do
+        before do
+          Sentry.background_worker = Sentry::BackgroundWorker.new(configuration)
+          configuration.before_send = lambda do |event, _hint|
+            sleep 0.1
+            event
+          end
+        end
+
+        context "with hint: { background: false }" do
+          context "when there's a Sentry::Error (caused by transport's networking error)" do
+            it "swallows the error" do
+              expect(subject.capture_event(event, scope, { background: false })).to be_nil
+            end
+          end
+        end
+      end
+    end
+
+    describe "#send_event" do
+      context "error happens when sending the event" do
+        it "raises the error" do
+          expect do
+            subject.send_event(event)
+          end.to raise_error(Sentry::Error)
+        end
+      end
+
+      context "error happens in the before_send callback" do
+        it "raises the error" do
+          configuration.before_send = lambda do |event, _hint|
+            raise TypeError
+          end
+
+          expect do
+            subject.send_event(event)
+          end
+        end
+      end
+    end
+  end
 end
